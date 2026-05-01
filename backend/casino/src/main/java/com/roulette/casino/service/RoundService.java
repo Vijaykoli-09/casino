@@ -22,58 +22,48 @@ public class RoundService {
     private final RoundRepository roundRepository;
     private final UserRepository  userRepository;
 
-    // Duration in seconds for each phase
-    public static final int BETTING_OPEN_DURATION   = 45;
-    public static final int BETTING_CLOSED_DURATION = 5;
-    public static final int SPINNING_DURATION       = 6;
-    public static final int RESULT_DISPLAY_DURATION = 5;
+    // ── Durations ─────────────────────────────────────────────────────────────
+    public static final int BETTING_OPEN_DURATION    = 45;
+    public static final int SPINNING_DURATION        = 10;
+    public static final int RESULT_DISPLAY_DURATION  = 5;
 
-    // ── Get current round response (called by GameController + Scheduler) ─────
-
+    // ── Get current round response (with user balance) ────────────────────────
     public RoundResponse getCurrentRoundResponse(String username) {
         Round round = getCurrentRound();
         User  user  = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        int secondsLeft = calculateSecondsLeft(round);
-        List<Integer> lastResults = getLast10Results();
-
         return RoundResponse.builder()
                 .id(round.getId())
                 .status(round.getStatus().name())
-                .secondsLeft(secondsLeft)
+                .secondsLeft(calculateSecondsLeft(round))
                 .resultNumber(round.getResultNumber())
-                .lastResults(lastResults)
+                .lastResults(getLast10Results())
                 .balance(user.getBalance())
                 .build();
     }
 
-    // ── Get current round response without user (for WebSocket broadcast) ─────
-
+    // ── Get current round response (no user — for WebSocket broadcast) ────────
     public RoundResponse getCurrentRoundResponsePublic() {
         Round round = getCurrentRound();
-        int secondsLeft = calculateSecondsLeft(round);
-        List<Integer> lastResults = getLast10Results();
 
         return RoundResponse.builder()
                 .id(round.getId())
                 .status(round.getStatus().name())
-                .secondsLeft(secondsLeft)
+                .secondsLeft(calculateSecondsLeft(round))
                 .resultNumber(round.getResultNumber())
-                .lastResults(lastResults)
-                .balance(null) // no user context — balance pushed separately
+                .lastResults(getLast10Results())
+                .balance(null)
                 .build();
     }
 
     // ── Get current active round ──────────────────────────────────────────────
-
     public Round getCurrentRound() {
         return roundRepository.findTopByOrderByCreatedAtDesc()
                 .orElseGet(this::createNewRound);
     }
 
-    // ── Create a new round ────────────────────────────────────────────────────
-
+    // ── Create new round ──────────────────────────────────────────────────────
     @Transactional
     public Round createNewRound() {
         Round round = Round.builder()
@@ -84,52 +74,41 @@ public class RoundService {
     }
 
     // ── Calculate seconds left in current phase ───────────────────────────────
-
     public int calculateSecondsLeft(Round round) {
         long elapsed = ChronoUnit.SECONDS.between(
             round.getStartTime(),
             LocalDateTime.now()
         );
-
         int duration = getDurationForStatus(round.getStatus());
-        int left = (int) (duration - elapsed);
-        return Math.max(0, left);
+        return (int) Math.max(0, duration - elapsed);
     }
 
-    // ── Get duration for each status ──────────────────────────────────────────
-
+    // ── Duration per status ───────────────────────────────────────────────────
     public int getDurationForStatus(RoundStatus status) {
         return switch (status) {
-            case BETTING_OPEN    -> BETTING_OPEN_DURATION;
-            case BETTING_CLOSED  -> BETTING_CLOSED_DURATION;
-            case SPINNING        -> SPINNING_DURATION;
-            case RESULT_DISPLAY  -> RESULT_DISPLAY_DURATION;
+            case BETTING_OPEN   -> BETTING_OPEN_DURATION;
+            case SPINNING       -> SPINNING_DURATION;
+            case RESULT_DISPLAY -> RESULT_DISPLAY_DURATION;
         };
     }
 
-    // ── Get last 10 results ───────────────────────────────────────────────────
-
+    // ── Last 10 results ───────────────────────────────────────────────────────
     public List<Integer> getLast10Results() {
-        return roundRepository.findLast10Results(
-            PageRequest.of(0, 10)
-        );
+        return roundRepository.findLast10Results(PageRequest.of(0, 10));
     }
 
     // ── Update round status ───────────────────────────────────────────────────
-
     @Transactional
     public Round updateRoundStatus(Round round, RoundStatus newStatus) {
         round.setStatus(newStatus);
         round.setStartTime(LocalDateTime.now());
-        if (newStatus == RoundStatus.RESULT_DISPLAY ||
-            newStatus == RoundStatus.BETTING_CLOSED) {
+        if (newStatus == RoundStatus.RESULT_DISPLAY) {
             round.setEndTime(LocalDateTime.now());
         }
         return roundRepository.save(round);
     }
 
     // ── Set result number ─────────────────────────────────────────────────────
-
     @Transactional
     public Round setResultNumber(Round round, int resultNumber) {
         round.setResultNumber(resultNumber);

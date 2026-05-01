@@ -29,20 +29,20 @@ public class GameController {
     @GetMapping("/round/current")
     public ResponseEntity<RoundResponse> getCurrentRound(
             @AuthenticationPrincipal UserDetails userDetails) {
-
         return ResponseEntity.ok(
             roundService.getCurrentRoundResponse(userDetails.getUsername())
         );
     }
 
-    // POST /api/game/bet
+    // POST /api/game/bet — single bet
     @PostMapping("/bet")
     public ResponseEntity<Map<String, Object>> placeBet(
             @Valid @RequestBody PlaceBetRequest request,
             @AuthenticationPrincipal UserDetails userDetails) {
 
-        BetResponse bet = betService.placeBet(request, userDetails.getUsername());
-
+        BetResponse bet = betService.placeBet(
+            request, userDetails.getUsername()
+        );
         return ResponseEntity.ok(Map.of(
             "success",    true,
             "bet",        bet,
@@ -50,11 +50,21 @@ public class GameController {
         ));
     }
 
+    // POST /api/game/bets/batch — multiple bets at once
+    @PostMapping("/bets/batch")
+    public ResponseEntity<Map<String, Object>> placeBets(
+            @RequestBody List<@Valid PlaceBetRequest> requests,
+            @AuthenticationPrincipal UserDetails userDetails) {
+
+        return ResponseEntity.ok(
+            betService.placeBets(requests, userDetails.getUsername())
+        );
+    }
+
     // GET /api/game/bets/history
     @GetMapping("/bets/history")
     public ResponseEntity<List<BetResponse>> getBetHistory(
             @AuthenticationPrincipal UserDetails userDetails) {
-
         return ResponseEntity.ok(
             betService.getBetHistory(userDetails.getUsername())
         );
@@ -64,9 +74,9 @@ public class GameController {
     @GetMapping("/balance")
     public ResponseEntity<Map<String, Object>> getBalance(
             @AuthenticationPrincipal UserDetails userDetails) {
-
         return ResponseEntity.ok(Map.of(
-            "balance", betService.getUserBalance(userDetails.getUsername())
+            "balance",
+            betService.getUserBalance(userDetails.getUsername())
         ));
     }
 }

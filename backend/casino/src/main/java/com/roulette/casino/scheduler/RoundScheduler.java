@@ -1,8 +1,8 @@
 package com.roulette.casino.scheduler;
 
-import com.roulette.casino.dto.response.RoundResponse;
 import com.roulette.casino.model.Round;
 import com.roulette.casino.model.RoundStatus;
+import com.roulette.casino.model.Role;
 import com.roulette.casino.model.User;
 import com.roulette.casino.repository.UserRepository;
 import com.roulette.casino.service.BetService;
@@ -31,101 +31,86 @@ public class RoundScheduler {
     private final SecureRandom random = new SecureRandom();
 
     // ── Runs every second ─────────────────────────────────────────────────────
-
     @Scheduled(fixedDelay = 1000)
     public void processRound() {
         try {
-            Round round = roundService.getCurrentRound();
-            int secondsLeft = roundService.calculateSecondsLeft(round);
+            Round round       = roundService.getCurrentRound();
+            int   secondsLeft = roundService.calculateSecondsLeft(round);
 
-            // Transition if time is up
             if (secondsLeft <= 0) {
                 transition(round);
             } else {
-                // Broadcast current state to all connected players
-                broadcastRoundState(round);
+                broadcastRoundState();
             }
         } catch (Exception e) {
             log.error("Scheduler error: {}", e.getMessage(), e);
         }
     }
 
-    // ── State machine transition ──────────────────────────────────────────────
-
+    // ── State machine ─────────────────────────────────────────────────────────
     private void transition(Round round) {
         switch (round.getStatus()) {
 
             case BETTING_OPEN -> {
-                log.info("Round {} → BETTING_CLOSED", round.getId());
-                Round updated = roundService.updateRoundStatus(
-                    round, RoundStatus.BETTING_CLOSED
-                );
-                broadcastRoundState(updated);
-            }
-
-            case BETTING_CLOSED -> {
+                // BETTING_OPEN → SPINNING directly
                 log.info("Round {} → SPINNING", round.getId());
                 Round updated = roundService.updateRoundStatus(
                     round, RoundStatus.SPINNING
                 );
-                broadcastRoundState(updated);
+                broadcastRoundState();
             }
 
             case SPINNING -> {
                 // Generate result
-                int result = random.nextInt(37); // 0 to 36
-                log.info("Round {} → RESULT_DISPLAY | result = {}", round.getId(), result);
+                int result = random.nextInt(37);
+                log.info("Round {} → RESULT_DISPLAY | result = {}",
+                    round.getId(), result);
 
-                // Save result
+                // Save result number
                 Round withResult = roundService.setResultNumber(round, result);
 
                 // Settle all bets
                 betService.settleBets(round.getId(), result);
 
                 // Transition to result display
-                Round updated = roundService.updateRoundStatus(
+                roundService.updateRoundStatus(
                     withResult, RoundStatus.RESULT_DISPLAY
                 );
 
-                // Broadcast result to all
-                broadcastRoundState(updated);
+                broadcastRoundState();
 
-                // Push updated balance to each player
+                // Push updated balance to every player
                 pushBalancesToPlayers();
             }
 
             case RESULT_DISPLAY -> {
-                // Create new round — cycle repeats
-                log.info("Round {} complete → Starting new round", round.getId());
-                Round newRound = roundService.createNewRound();
-                broadcastRoundState(newRound);
+                // Start new round
+                log.info("Round {} complete → New round starting", round.getId());
+                roundService.createNewRound();
+                broadcastRoundState();
             }
         }
     }
 
-    // ── Broadcast round state to all subscribers ──────────────────────────────
-
-    private void broadcastRoundState(Round round) {
-        RoundResponse response = roundService.getCurrentRoundResponsePublic();
-        messagingTemplate.convertAndSend("/topic/round", response);
+    // ── Broadcast to all subscribers ──────────────────────────────────────────
+    private void broadcastRoundState() {
+        messagingTemplate.convertAndSend(
+            "/topic/round",
+            roundService.getCurrentRoundResponsePublic()
+        );
     }
 
-    // ── Push updated balance to each individual player ────────────────────────
-
+    // ── Push balance to each player privately ─────────────────────────────────
     private void pushBalancesToPlayers() {
-        List<User> players = userRepository.findByRole(
-            com.roulette.casino.model.Role.PLAYER
-        );
-
+        List<User> players = userRepository.findByRole(Role.PLAYER);
         for (User player : players) {
-            Map<String, Object> balanceUpdate = new HashMap<>();
-            balanceUpdate.put("balance", player.getBalance());
-            balanceUpdate.put("username", player.getUsername());
-
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("balance",  player.getBalance());
+            payload.put("username", player.getUsername());
             messagingTemplate.convertAndSendToUser(
                 player.getUsername(),
                 "/queue/balance",
-                balanceUpdate
+                payload
             );
         }
     }
