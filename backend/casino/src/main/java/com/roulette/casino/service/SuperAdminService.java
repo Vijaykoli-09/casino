@@ -2,6 +2,7 @@ package com.roulette.casino.service;
 
 import com.roulette.casino.dto.request.CreateUserRequest;
 import com.roulette.casino.dto.response.AdminDetailResponse;
+import com.roulette.casino.dto.response.AdminProfitResponse;
 import com.roulette.casino.dto.response.UserResponse;
 import com.roulette.casino.model.Role;
 import com.roulette.casino.model.User;
@@ -13,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -130,4 +133,57 @@ public class SuperAdminService {
 
         userRepository.delete(admin);
     }
+
+    public AdminProfitResponse getAdminProfit(
+        Long adminId,
+        String fromDate,
+        String toDate) {
+
+    User admin = userRepository.findById(adminId)
+            .orElseThrow(() -> new RuntimeException("Admin not found"));
+
+    if (admin.getRole() != Role.ADMIN) {
+        throw new RuntimeException("User is not an admin");
+    }
+
+    // Parse dates
+    LocalDateTime from = LocalDate.parse(fromDate)
+            .atStartOfDay();
+    LocalDateTime to   = LocalDate.parse(toDate)
+            .atTime(23, 59, 59);
+
+    // Get stats
+    BigDecimal totalBets    = betRepository
+            .calculateTotalBetsByDateRange(adminId, from, to);
+    BigDecimal totalPayouts = betRepository
+            .calculateTotalPayoutsByDateRange(adminId, from, to);
+    BigDecimal adminProfit  = betRepository
+            .calculateAdminProfitByDateRange(adminId, from, to);
+
+    // 30% super admin share
+    BigDecimal superAdminShare = adminProfit
+            .multiply(BigDecimal.valueOf(0.30))
+            .setScale(2, java.math.RoundingMode.HALF_UP);
+
+    // Players list
+    List<UserResponse> players = userRepository
+            .findByCreatedById(adminId)
+            .stream()
+            .filter(u -> u.getRole() == Role.PLAYER)
+            .map(adminService::mapToUserResponse)
+            .collect(Collectors.toList());
+
+    return AdminProfitResponse.builder()
+            .adminId(admin.getId())
+            .adminUsername(admin.getUsername())
+            .totalPlayers(players.size())
+            .totalBets(totalBets)
+            .totalPayouts(totalPayouts)
+            .adminProfit(adminProfit)
+            .superAdminShare(superAdminShare)
+            .fromDate(fromDate)
+            .toDate(toDate)
+            .players(players)
+            .build();
+}
 }

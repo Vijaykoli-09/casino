@@ -33,4 +33,37 @@ public interface BetRepository extends JpaRepository<Bet, Long> {
 
     // Check if player already bet on this round
     boolean existsByRoundIdAndUserId(Long roundId, Long userId);
+
+    // Profit within date range
+@Query("SELECT COALESCE(SUM(b.amount - b.winAmount), 0) FROM Bet b " +
+       "WHERE b.user.createdBy.id = :adminId " +
+       "AND b.isSettled = true " +
+       "AND b.createdAt BETWEEN :from AND :to")
+BigDecimal calculateAdminProfitByDateRange(
+    @Param("adminId") Long adminId,
+    @Param("from") java.time.LocalDateTime from,
+    @Param("to") java.time.LocalDateTime to
+);
+
+// Total bets amount within date range
+@Query("SELECT COALESCE(SUM(b.amount), 0) FROM Bet b " +
+       "WHERE b.user.createdBy.id = :adminId " +
+       "AND b.isSettled = true " +
+       "AND b.createdAt BETWEEN :from AND :to")
+BigDecimal calculateTotalBetsByDateRange(
+    @Param("adminId") Long adminId,
+    @Param("from") java.time.LocalDateTime from,
+    @Param("to") java.time.LocalDateTime to
+);
+
+// Total payouts within date range
+@Query("SELECT COALESCE(SUM(b.winAmount), 0) FROM Bet b " +
+       "WHERE b.user.createdBy.id = :adminId " +
+       "AND b.isSettled = true " +
+       "AND b.createdAt BETWEEN :from AND :to")
+BigDecimal calculateTotalPayoutsByDateRange(
+    @Param("adminId") Long adminId,
+    @Param("from") java.time.LocalDateTime from,
+    @Param("to") java.time.LocalDateTime to
+);
 }

@@ -2,6 +2,7 @@ package com.roulette.casino.controller;
 
 import com.roulette.casino.dto.request.CreateUserRequest;
 import com.roulette.casino.dto.response.AdminDetailResponse;
+import com.roulette.casino.dto.response.AdminProfitResponse;
 import com.roulette.casino.dto.response.UserResponse;
 import com.roulette.casino.service.SuperAdminService;
 import jakarta.validation.Valid;
@@ -66,4 +67,14 @@ public class SuperAdminController {
         superAdminService.deleteAdmin(id);
         return ResponseEntity.noContent().build();
     }
+    // GET /api/super-admin/admins/{id}/profit?from=2026-04-01&to=2026-05-01
+@GetMapping("/admins/{id}/profit")
+public ResponseEntity<AdminProfitResponse> getAdminProfit(
+        @PathVariable Long id,
+        @RequestParam String from,
+        @RequestParam String to) {
+    return ResponseEntity.ok(
+        superAdminService.getAdminProfit(id, from, to)
+    );
+}
 }
