@@ -6,72 +6,68 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { COLORS, FONTS } from '../constants/theme';
-import { getUsers, createUser, logout } from '../services/api';
+import { getMyPlayers, createPlayer, logout } from '../services/api';
+import type { UserItem } from '../services/api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Admin'>;
-
-interface User {
-  id: number;
-  username: string;
-  balance: number;
-  isAdmin: boolean;
-  createdAt: string;
-}
-
 type Tab = 'players' | 'create';
 
 export default function AdminScreen({ navigation }: Props) {
   const [tab,         setTab]         = useState<Tab>('players');
-  const [users,       setUsers]       = useState<User[]>([]);
-  const [filtered,    setFiltered]    = useState<User[]>([]);
+  const [players,     setPlayers]     = useState<UserItem[]>([]);
+  const [filtered,    setFiltered]    = useState<UserItem[]>([]);
   const [search,      setSearch]      = useState('');
   const [loading,     setLoading]     = useState(true);
-
-  // Create form state
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newBalance,  setNewBalance]  = useState('');
   const [creating,    setCreating]    = useState(false);
 
-  const fetchUsers = useCallback(async () => {
+  const fetchPlayers = useCallback(async () => {
+    setLoading(true);
     try {
-      const data = await getUsers();
-      const players = data.filter(u => !u.isAdmin);
-      setUsers(players);
-      setFiltered(players);
-    } catch {
-      Alert.alert('Error', 'Could not load users');
+      const data = await getMyPlayers();
+      setPlayers(data);
+      setFiltered(data);
+    } catch (err: any) {
+      Alert.alert('Error', err.message ?? 'Could not load players');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+  useEffect(() => { fetchPlayers(); }, [fetchPlayers]);
 
-  // Live search filter
   useEffect(() => {
     const q = search.toLowerCase().trim();
-    setFiltered(q ? users.filter(u => u.username.toLowerCase().includes(q)) : users);
-  }, [search, users]);
+    setFiltered(
+      q ? players.filter(p => p.username.toLowerCase().includes(q)) : players
+    );
+  }, [search, players]);
 
   const handleCreate = async () => {
     if (!newUsername.trim() || !newPassword.trim()) {
-      Alert.alert('Error', 'Username and password are required');
+      Alert.alert('Error', 'Username and password required');
+      return;
+    }
+    const bal = parseFloat(newBalance);
+    if (!newBalance || isNaN(bal) || bal < 0) {
+      Alert.alert('Error', 'Enter a valid starting balance');
       return;
     }
     setCreating(true);
     try {
-      await createUser({
+      await createPlayer({
         username: newUsername.trim(),
         password: newPassword.trim(),
-        balance:  parseFloat(newBalance) || 0,
+        balance:  bal,
       });
       Alert.alert('Success', `Player "${newUsername}" created`);
       setNewUsername('');
       setNewPassword('');
       setNewBalance('');
       setTab('players');
-      fetchUsers();
+      fetchPlayers();
     } catch (err: any) {
       Alert.alert('Error', err.message ?? 'Failed to create player');
     } finally {
@@ -90,7 +86,6 @@ export default function AdminScreen({ navigation }: Props) {
     <View style={s.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0F0A" />
 
-      {/* Header */}
       <View style={s.header}>
         <View style={s.adminIcon}>
           <Text style={s.adminIconText}>♛</Text>
@@ -104,7 +99,6 @@ export default function AdminScreen({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
-      {/* Tabs */}
       <View style={s.tabs}>
         {(['players', 'create'] as Tab[]).map(t => (
           <TouchableOpacity
@@ -113,13 +107,14 @@ export default function AdminScreen({ navigation }: Props) {
             onPress={() => setTab(t)}
           >
             <Text style={[s.tabText, tab === t && s.tabTextActive]}>
-              {t === 'players' ? `Players (${users.length})` : 'Create Player'}
+              {t === 'players'
+                ? `Players (${players.length})`
+                : 'Create Player'}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* ── PLAYERS TAB ── */}
       {tab === 'players' && (
         <>
           <View style={s.searchWrap}>
@@ -131,7 +126,6 @@ export default function AdminScreen({ navigation }: Props) {
               onChangeText={setSearch}
               autoCapitalize="none"
               autoCorrect={false}
-              clearButtonMode="while-editing"
             />
           </View>
 
@@ -142,7 +136,7 @@ export default function AdminScreen({ navigation }: Props) {
           ) : filtered.length === 0 ? (
             <View style={s.empty}>
               <Text style={s.emptyText}>
-                {search ? 'No users match your search' : 'No players yet'}
+                {search ? 'No players match search' : 'No players yet'}
               </Text>
             </View>
           ) : (
@@ -166,20 +160,21 @@ export default function AdminScreen({ navigation }: Props) {
                   <View style={s.userInfo}>
                     <Text style={s.userName}>{u.username}</Text>
                     <Text style={s.userBalance}>
-                      ₹ {u.balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      ₹ {Number(u.balance).toLocaleString('en-IN', {
+                        minimumFractionDigits: 2,
+                      })}
                     </Text>
                   </View>
                   <Text style={s.chevron}>›</Text>
                 </TouchableOpacity>
               )}
-              onRefresh={fetchUsers}
+              onRefresh={fetchPlayers}
               refreshing={loading}
             />
           )}
         </>
       )}
 
-      {/* ── CREATE TAB ── */}
       {tab === 'create' && (
         <View style={s.createForm}>
           <Text style={s.createTitle}>New Player Account</Text>
@@ -208,7 +203,7 @@ export default function AdminScreen({ navigation }: Props) {
           <Text style={s.inputLabel}>STARTING BALANCE (₹)</Text>
           <TextInput
             style={s.input}
-            placeholder="0"
+            placeholder="1000"
             placeholderTextColor="rgba(255,255,255,0.2)"
             value={newBalance}
             onChangeText={setNewBalance}
@@ -232,7 +227,7 @@ export default function AdminScreen({ navigation }: Props) {
 }
 
 const s = StyleSheet.create({
-  container:    { flex: 1, backgroundColor: '#0A0F0A' },
+  container:     { flex: 1, backgroundColor: '#0A0F0A' },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     padding: 16, paddingTop: 50,
@@ -246,27 +241,33 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   adminIconText: { fontSize: 16, color: COLORS.gold },
-  headerTitle:  { fontFamily: FONTS.displayBold, fontSize: 18, color: COLORS.gold },
-  headerSub:    { fontSize: 9, color: COLORS.textMuted, letterSpacing: 1, fontFamily: FONTS.body },
-  logoutBtn:    { paddingHorizontal: 12, paddingVertical: 7, borderWidth: 0.5, borderColor: COLORS.border, borderRadius: 7 },
-  logoutText:   { fontSize: 11, color: COLORS.textMuted, fontFamily: FONTS.bodyMed },
-  tabs:         { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: 'rgba(201,168,76,0.15)' },
-  tab:          { flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabActive:    { borderBottomColor: COLORS.gold },
-  tabText:      { fontSize: 12, color: COLORS.textMuted, fontFamily: FONTS.bodyMed },
-  tabTextActive:{ color: COLORS.gold },
-  searchWrap:   { padding: 12, paddingBottom: 8 },
-  searchInput:  {
+  headerTitle:   { fontFamily: FONTS.displayBold, fontSize: 18, color: COLORS.gold },
+  headerSub:     { fontSize: 9, color: COLORS.textMuted, letterSpacing: 1, fontFamily: FONTS.body },
+  logoutBtn: {
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 0.5, borderColor: COLORS.border, borderRadius: 7,
+  },
+  logoutText:    { fontSize: 11, color: COLORS.textMuted, fontFamily: FONTS.bodyMed },
+  tabs:          { flexDirection: 'row', borderBottomWidth: 0.5, borderBottomColor: 'rgba(201,168,76,0.15)' },
+  tab: {
+    flex: 1, paddingVertical: 12, alignItems: 'center',
+    borderBottomWidth: 2, borderBottomColor: 'transparent',
+  },
+  tabActive:     { borderBottomColor: COLORS.gold },
+  tabText:       { fontSize: 12, color: COLORS.textMuted, fontFamily: FONTS.bodyMed },
+  tabTextActive: { color: COLORS.gold },
+  searchWrap:    { padding: 12, paddingBottom: 8 },
+  searchInput: {
     padding: 11, paddingHorizontal: 14,
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 0.5, borderColor: 'rgba(201,168,76,0.2)',
     borderRadius: 9, color: COLORS.text,
     fontSize: 13, fontFamily: FONTS.body,
   },
-  loader:       { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  empty:        { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  emptyText:    { color: COLORS.textMuted, fontSize: 13, fontFamily: FONTS.body },
-  list:         { padding: 12, gap: 8 },
+  loader:        { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  empty:         { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyText:     { color: COLORS.textMuted, fontSize: 13, fontFamily: FONTS.body },
+  list:          { padding: 12, gap: 8 },
   userCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: 'rgba(255,255,255,0.03)',
@@ -278,14 +279,17 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(201,168,76,0.15)',
     alignItems: 'center', justifyContent: 'center',
   },
-  avatarText:   { fontWeight: '700', color: COLORS.gold, fontSize: 14, fontFamily: FONTS.bodySemi },
-  userInfo:     { flex: 1 },
-  userName:     { fontSize: 14, color: COLORS.text, fontFamily: FONTS.bodyMed },
-  userBalance:  { fontSize: 12, color: COLORS.gold, marginTop: 2, fontFamily: FONTS.body },
-  chevron:      { fontSize: 22, color: COLORS.textMuted, marginRight: 4 },
-  createForm:   { padding: 20, gap: 8 },
-  createTitle:  { fontSize: 14, color: COLORS.gold, fontFamily: FONTS.bodySemi, marginBottom: 8, letterSpacing: 0.5 },
-  inputLabel:   { fontSize: 10, color: COLORS.textMuted, letterSpacing: 1.5, fontFamily: FONTS.bodyMed },
+  avatarText:    { fontWeight: '700', color: COLORS.gold, fontSize: 14, fontFamily: FONTS.bodySemi },
+  userInfo:      { flex: 1 },
+  userName:      { fontSize: 14, color: COLORS.text, fontFamily: FONTS.bodyMed },
+  userBalance:   { fontSize: 12, color: COLORS.gold, marginTop: 2, fontFamily: FONTS.body },
+  chevron:       { fontSize: 22, color: COLORS.textMuted, marginRight: 4 },
+  createForm:    { padding: 20, gap: 8 },
+  createTitle: {
+    fontSize: 14, color: COLORS.gold,
+    fontFamily: FONTS.bodySemi, marginBottom: 8, letterSpacing: 0.5,
+  },
+  inputLabel:    { fontSize: 10, color: COLORS.textMuted, letterSpacing: 1.5, fontFamily: FONTS.bodyMed },
   input: {
     padding: 12, paddingHorizontal: 14,
     backgroundColor: 'rgba(255,255,255,0.04)',
@@ -299,5 +303,5 @@ const s = StyleSheet.create({
     borderRadius: 9, padding: 14,
     alignItems: 'center', marginTop: 6,
   },
-  createBtnText:{ fontSize: 13, fontWeight: '600', color: COLORS.gold, fontFamily: FONTS.bodySemi },
+  createBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.gold, fontFamily: FONTS.bodySemi },
 });

@@ -1,257 +1,328 @@
 import { Storage } from './storage';
 
-// ==========================================
-// MOCK DATABASE (In-Memory)
-// ==========================================
-const MOCK_USERS = [
-  {
-    id: 1,
-    username: 'vijay',
-    password: '1234',
-    balance: 10000,
-    isAdmin: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 2,
-    username: 'admin',
-    password: '1234',
-    balance: 50000,
-    isAdmin: true,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 3,
-    username: 'player1',
-    password: 'pass123',
-    balance: 5000,
-    isAdmin: false,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 4,
-    username: 'player2',
-    password: 'pass123',
-    balance: 15000,
-    isAdmin: false,
-    createdAt: new Date().toISOString(),
-  },
-];
+const BASE_URL = 'http://192.168.31.42:8080/api';
 
-let currentUserId: number | null = null;
-
-// Mock current round state
-let mockRound = {
-  id: 1,
-  status: 'BETTING_OPEN' as 'BETTING_OPEN' | 'BETTING_CLOSED' | 'SPINNING' | 'RESULT_DISPLAY',
-  secondsLeft: 30,
-  resultNumber: null as number | null,
-  lastResults: [12, 5, 23, 8, 17, 3, 29, 11],
+// ── Header builder ────────────────────────────────────────────────────────────
+const getHeaders = async (): Promise<Record<string, string>> => {
+    const token = await Storage.getToken();
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
 };
 
-// Mock bet history
-let mockBets: Array<{
-  id: number;
-  roundId: number;
-  userId: number;
-  betType: string;
-  betValue: string | null;
-  amount: number;
-  winAmount: number;
-  isSettled: boolean;
-  createdAt: string;
-}> = [];
+// ── Response handler ──────────────────────────────────────────────────────────
+const handle = async <T>(res: Response): Promise<T> => {
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || (err as any).message || `HTTP ${res.status}`);
+  }
+  return res.json();
+};
 
-// ==========================================
-// HELPER: Simulate API delay
-// ==========================================
-const delay = (ms: number = 500) => new Promise<void>(resolve => setTimeout(() => resolve(), ms));
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ==========================================
-// AUTH API
-// ==========================================
-export const login = async (username: string, password: string) => {
-  await delay(800); // Simulate network delay
+export const login = async (
+  username: string,
+  password: string
+): Promise<{
+  token:            string;
+  userId:           number;
+  username:         string;
+  role:             string;
+  requiresPasscode: boolean;
+}> => {
+  const res = await fetch(`${BASE_URL}/auth/login`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ username, password }),
+  });
+  const data = await handle<{
+    token:            string;
+    userId:           number;
+    username:         string;
+    role:             string;
+    requiresPasscode: boolean;
+  }>(res);
 
-  const user = MOCK_USERS.find(
-    u => u.username === username && u.password === password
-  );
-
-  if (!user) {
-    throw new Error('Invalid username or password');
+  // Save auth only if NOT super admin temp token
+  if (!data.requiresPasscode) {
+    await Storage.saveAuth(data.token, data.userId, data.role === 'SUPER_ADMIN');
   }
 
-  currentUserId = user.id;
-  const token = `mock_token_${user.id}_${Date.now()}`;
-
-  await Storage.saveAuth(token, user.id, user.isAdmin);
-
-  return {
-    token,
-    userId: user.id,
-    isAdmin: user.isAdmin,
-  };
+  return data;
 };
 
-export const logout = () => {
-  currentUserId = null;
-  return Storage.clear();
+export const verifyPasscode = async (
+  passcode:  string,
+  tempToken: string
+): Promise<{
+  token:            string;
+  userId:           number;
+  username:         string;
+  role:             string;
+  requiresPasscode: boolean;
+}> => {
+  const res = await fetch(`${BASE_URL}/auth/verify-passcode`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${tempToken}`,
+    },
+    body: JSON.stringify({ passcode }),
+  });
+  const data = await handle<{
+    token:            string;
+    userId:           number;
+    username:         string;
+    role:             string;
+    requiresPasscode: boolean;
+  }>(res);
+
+  // Save full super admin token
+  await Storage.saveAuth(data.token, data.userId, true);
+  return data;
 };
 
-// ==========================================
-// PLAYER API
-// ==========================================
-export const getCurrentRound = async () => {
-  await delay(300);
+export const logout = async (): Promise<void> => {
+  await Storage.clear();
+};
 
-  const userId = await Storage.getUserId();
-  if (!userId) throw new Error('Not authenticated');
+// ─────────────────────────────────────────────────────────────────────────────
+// GAME — PLAYER
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const user = MOCK_USERS.find(u => u.id === userId);
-  if (!user) throw new Error('User not found');
-
-  return {
-    ...mockRound,
-    balance: user.balance,
-  };
+export const getCurrentRound = async (): Promise<{
+  id:           number;
+  status:       'BETTING_OPEN' | 'SPINNING' | 'RESULT_DISPLAY';
+  secondsLeft:  number;
+  resultNumber: number | null;
+  lastResults:  number[];
+  balance:      number;
+}> => {
+  const res = await fetch(`${BASE_URL}/game/round/current`, {
+    headers: await getHeaders(),
+  });
+  return handle(res);
 };
 
 export const placeBet = async (body: {
-  roundId: number;
-  betType: 'RED' | 'BLACK' | 'NUMBER';
+  roundId:  number;
+  betType:  string;
   betValue?: string;
-  amount: number;
-}) => {
-  await delay(400);
-
-  const userId = await Storage.getUserId();
-  if (!userId) throw new Error('Not authenticated');
-
-  const user = MOCK_USERS.find(u => u.id === userId);
-  if (!user) throw new Error('User not found');
-
-  if (user.balance < body.amount) {
-    throw new Error('Insufficient balance');
-  }
-
-  // Deduct bet amount
-  user.balance -= body.amount;
-
-  // Save bet to history
-  mockBets.push({
-    id: mockBets.length + 1,
-    roundId: body.roundId,
-    userId,
-    betType: body.betType,
-    betValue: body.betValue || null,
-    amount: body.amount,
-    winAmount: 0,
-    isSettled: false,
-    createdAt: new Date().toISOString(),
+  amount:   number;
+}): Promise<{
+  success:    boolean;
+  bet:        BetItem;
+  newBalance: number;
+}> => {
+  const res = await fetch(`${BASE_URL}/game/bet`, {
+    method:  'POST',
+    headers: await getHeaders(),
+    body:    JSON.stringify(body),
   });
-
-  return {
-    success: true,
-    newBalance: user.balance,
-  };
+  return handle(res);
 };
 
-export const getBalance = async () => {
-  await delay(200);
-
-  const userId = await Storage.getUserId();
-  if (!userId) throw new Error('Not authenticated');
-
-  const user = MOCK_USERS.find(u => u.id === userId);
-  if (!user) throw new Error('User not found');
-
-  return { balance: user.balance };
+export const placeBetsBatch = async (
+  bets: Array<{
+    roundId:   number;
+    betType:   string;
+    betValue?: string;
+    amount:    number;
+  }>
+): Promise<{
+  success:       boolean;
+  totalDeducted: number;
+  newBalance:    number;
+  bets:          BetItem[];
+}> => {
+  const res = await fetch(`${BASE_URL}/game/bets/batch`, {
+    method:  'POST',
+    headers: await getHeaders(),
+    body:    JSON.stringify(bets),
+  });
+  return handle(res);
 };
 
-export const getBetHistory = async () => {
-  await delay(400);
-
-  const userId = await Storage.getUserId();
-  if (!userId) throw new Error('Not authenticated');
-
-  return mockBets.filter(bet => bet.userId === userId);
+export const getBalance = async (): Promise<{ balance: number }> => {
+  const res = await fetch(`${BASE_URL}/game/balance`, {
+    headers: await getHeaders(),
+  });
+  return handle(res);
 };
 
-// ==========================================
-// ADMIN API
-// ==========================================
-export const getUsers = async () => {
-  await delay(500);
-
-  const userId = await Storage.getUserId();
-  const isAdmin = await Storage.getIsAdmin();
-
-  if (!userId || !isAdmin) {
-    throw new Error('Unauthorized - Admin access required');
-  }
-
-  return MOCK_USERS.map(u => ({
-    id: u.id,
-    username: u.username,
-    balance: u.balance,
-    isAdmin: u.isAdmin,
-    createdAt: u.createdAt,
-  }));
+export const getBetHistory = async (): Promise<BetItem[]> => {
+  const res = await fetch(`${BASE_URL}/game/bets/history`, {
+    headers: await getHeaders(),
+  });
+  return handle(res);
 };
 
-export const createUser = async (body: {
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getMyPlayers = async (): Promise<UserItem[]> => {
+  const res = await fetch(`${BASE_URL}/admin/players`, {
+    headers: await getHeaders(),
+  });
+  return handle(res);
+};
+
+export const searchMyPlayers = async (q: string): Promise<UserItem[]> => {
+  const res = await fetch(
+    `${BASE_URL}/admin/players/search?q=${encodeURIComponent(q)}`,
+    { headers: await getHeaders() }
+  );
+  return handle(res);
+};
+
+export const getPlayer = async (id: number): Promise<UserItem> => {
+  const res = await fetch(`${BASE_URL}/admin/players/${id}`, {
+    headers: await getHeaders(),
+  });
+  return handle(res);
+};
+
+export const createPlayer = async (body: {
   username: string;
   password: string;
-  balance: number;
-}) => {
-  await delay(600);
-
-  const userId = await Storage.getUserId();
-  const isAdmin = await Storage.getIsAdmin();
-
-  if (!userId || !isAdmin) {
-    throw new Error('Unauthorized - Admin access required');
-  }
-
-  // Check if username exists
-  if (MOCK_USERS.find(u => u.username === body.username)) {
-    throw new Error('Username already exists');
-  }
-
-  const newUser = {
-    id: MOCK_USERS.length + 1,
-    username: body.username,
-    password: body.password,
-    balance: body.balance,
-    isAdmin: false,
-    createdAt: new Date().toISOString(),
-  };
-
-  MOCK_USERS.push(newUser);
-
-  return {
-    id: newUser.id,
-    username: newUser.username,
-    balance: newUser.balance,
-  };
+  balance:  number;
+}): Promise<UserItem> => {
+  const res = await fetch(`${BASE_URL}/admin/players`, {
+    method:  'POST',
+    headers: await getHeaders(),
+    body:    JSON.stringify(body),
+  });
+  return handle(res);
 };
 
-export const updateBalance = async (targetUserId: number, amount: number) => {
-  await delay(400);
-
-  const userId = await Storage.getUserId();
-  const isAdmin = await Storage.getIsAdmin();
-
-  if (!userId || !isAdmin) {
-    throw new Error('Unauthorized - Admin access required');
-  }
-
-  const user = MOCK_USERS.find(u => u.id === targetUserId);
-  if (!user) {
-    throw new Error('User not found');
-  }
-
-  user.balance = amount;
-
-  return { newBalance: user.balance };
+export const updateBalance = async (
+  playerId: number,
+  amount:   number
+): Promise<{ id: number; username: string; balance: number }> => {
+  const res = await fetch(`${BASE_URL}/admin/players/${playerId}/balance`, {
+    method:  'PUT',
+    headers: await getHeaders(),
+    body:    JSON.stringify({ amount }),
+  });
+  return handle(res);
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUPER ADMIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getAllAdmins = async (): Promise<UserItem[]> => {
+  const res = await fetch(`${BASE_URL}/super-admin/admins`, {
+    headers: await getHeaders(),
+  });
+  return handle(res);
+};
+
+export const searchAdmins = async (q: string): Promise<UserItem[]> => {
+  const res = await fetch(
+    `${BASE_URL}/super-admin/admins/search?q=${encodeURIComponent(q)}`,
+    { headers: await getHeaders() }
+  );
+  return handle(res);
+};
+
+export const createAdmin = async (body: {
+  username: string;
+  password: string;
+}): Promise<UserItem> => {
+  const res = await fetch(`${BASE_URL}/super-admin/admins`, {
+    method:  'POST',
+    headers: await getHeaders(),
+    body:    JSON.stringify(body),
+  });
+  return handle(res);
+};
+
+export const getAdminDetail = async (
+  adminId: number
+): Promise<AdminDetailItem> => {
+  const res = await fetch(`${BASE_URL}/super-admin/admins/${adminId}`, {
+    headers: await getHeaders(),
+  });
+  return handle(res);
+};
+
+export const getAdminProfit = async (
+  adminId:  number,
+  from:     string,
+  to:       string
+): Promise<AdminProfitItem> => {
+  const res = await fetch(
+    `${BASE_URL}/super-admin/admins/${adminId}/profit?from=${from}&to=${to}`,
+    { headers: await getHeaders() }
+  );
+  return handle(res);
+};
+
+export const deleteAdmin = async (adminId: number): Promise<void> => {
+  const res = await fetch(`${BASE_URL}/super-admin/admins/${adminId}`, {
+    method:  'DELETE',
+    headers: await getHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || `HTTP ${res.status}`);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BetItem {
+  id:         number;
+  roundId:    number;
+  betType:    string;
+  betValue:   string | null;
+  amount:     number;
+  winAmount:  number;
+  isSettled:  boolean;
+  createdAt:  string;
+}
+
+export interface UserItem {
+  id:                 number;
+  username:           string;
+  balance:            number;
+  role:               string;
+  createdById:        number | null;
+  createdByUsername:  string | null;
+  createdAt:          string;
+}
+
+export interface AdminDetailItem {
+  id:           number;
+  username:     string;
+  role:         string;
+  totalProfit:  number;
+  totalPlayers: number;
+  players:      UserItem[];
+  createdAt:    string;
+}
+
+export interface AdminProfitItem {
+  adminId:         number;
+  adminUsername:   string;
+  totalPlayers:    number;
+  totalBets:       number;
+  totalPayouts:    number;
+  adminProfit:     number;
+  superAdminShare: number;
+  fromDate:        string;
+  toDate:          string;
+  players: Array<{
+    id:       number;
+    username: string;
+    balance:  number;
+  }>;
+}

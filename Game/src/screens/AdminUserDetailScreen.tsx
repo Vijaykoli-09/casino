@@ -14,9 +14,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'AdminUserDetail'>;
 export default function AdminUserDetailScreen({ route, navigation }: Props) {
   const { userId, username } = route.params;
 
-  const [balance,  setBalance]  = useState(route.params.balance);
-  const [amount,   setAmount]   = useState('');
-  const [loading,  setLoading]  = useState(false);
+  const [balance,   setBalance]   = useState(route.params.balance);
+  const [amount,    setAmount]    = useState('');
+  const [loading,   setLoading]   = useState(false);
   const [lastAdded, setLastAdded] = useState<number | null>(null);
 
   const initials = username.slice(0, 2).toUpperCase();
@@ -30,7 +30,7 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
     setLoading(true);
     try {
       const res = await updateBalance(userId, amt);
-      setBalance(res.newBalance);
+      setBalance(res.balance);
       setLastAdded(amt);
       setAmount('');
     } catch (err: any) {
@@ -56,11 +56,12 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Remove', style: 'destructive', onPress: async () => {
+          text: 'Remove', style: 'destructive',
+          onPress: async () => {
             setLoading(true);
             try {
               const res = await updateBalance(userId, -amt);
-              setBalance(res.newBalance);
+              setBalance(res.balance);
               setLastAdded(-amt);
               setAmount('');
             } catch (err: any) {
@@ -68,7 +69,7 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
             } finally {
               setLoading(false);
             }
-          }
+          },
         },
       ]
     );
@@ -81,7 +82,6 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
     >
       <StatusBar barStyle="light-content" backgroundColor="#0A0F0A" />
 
-      {/* Header */}
       <View style={s.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
           <Text style={s.backBtnText}>← Back</Text>
@@ -90,9 +90,10 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
         <View style={{ width: 60 }} />
       </View>
 
-      <ScrollView contentContainerStyle={s.body} keyboardShouldPersistTaps="handled">
-
-        {/* Avatar + name */}
+      <ScrollView
+        contentContainerStyle={s.body}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={s.profileCard}>
           <View style={s.avatar}>
             <Text style={s.avatarText}>{initials}</Text>
@@ -101,23 +102,27 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
           <Text style={s.userIdLabel}>ID #{userId}</Text>
         </View>
 
-        {/* Balance display */}
         <View style={s.balanceCard}>
           <Text style={s.balanceLabel}>CURRENT BALANCE</Text>
           <Text style={s.balanceAmount}>
-            ₹ {balance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            ₹ {Number(balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
           </Text>
-
           {lastAdded !== null && (
-            <View style={[s.lastAddedBadge, lastAdded > 0 ? s.badgeGreen : s.badgeRed]}>
-              <Text style={[s.lastAddedText, lastAdded > 0 ? s.textGreen : s.textRed]}>
-                {lastAdded > 0 ? '+' : ''}₹{Math.abs(lastAdded).toLocaleString('en-IN')} applied
+            <View style={[
+              s.lastAddedBadge,
+              lastAdded > 0 ? s.badgeGreen : s.badgeRed,
+            ]}>
+              <Text style={[
+                s.lastAddedText,
+                lastAdded > 0 ? s.textGreen : s.textRed,
+              ]}>
+                {lastAdded > 0 ? '+' : ''}
+                ₹{Math.abs(lastAdded).toLocaleString('en-IN')} applied
               </Text>
             </View>
           )}
         </View>
 
-        {/* Amount input */}
         <View style={s.inputSection}>
           <Text style={s.inputLabel}>AMOUNT (₹)</Text>
           <TextInput
@@ -131,7 +136,6 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
           />
         </View>
 
-        {/* Add / Remove buttons */}
         <View style={s.actionRow}>
           <TouchableOpacity
             style={[s.addBtn, loading && { opacity: 0.6 }]}
@@ -143,7 +147,6 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
               {loading ? '...' : '+ Add Balance'}
             </Text>
           </TouchableOpacity>
-
           <TouchableOpacity
             style={[s.removeBtn, loading && { opacity: 0.6 }]}
             onPress={handleRemove}
@@ -156,7 +159,6 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        {/* Quick amount chips */}
         <Text style={s.quickLabel}>QUICK AMOUNTS</Text>
         <View style={s.quickRow}>
           {[100, 500, 1000, 5000].map(v => (
@@ -165,18 +167,19 @@ export default function AdminUserDetailScreen({ route, navigation }: Props) {
               style={s.quickChip}
               onPress={() => setAmount(String(v))}
             >
-              <Text style={s.quickChipText}>₹{v.toLocaleString()}</Text>
+              <Text style={s.quickChipText}>
+                ₹{v.toLocaleString()}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
-
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0A0F0A' },
+  container:     { flex: 1, backgroundColor: '#0A0F0A' },
   header: {
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between',
@@ -184,12 +187,10 @@ const s = StyleSheet.create({
     backgroundColor: 'rgba(201,168,76,0.06)',
     borderBottomWidth: 0.5, borderBottomColor: 'rgba(201,168,76,0.2)',
   },
-  backBtn:      { width: 60 },
-  backBtnText:  { color: COLORS.gold, fontSize: 13, fontFamily: FONTS.bodyMed },
-  headerTitle:  { fontFamily: FONTS.displayBold, fontSize: 18, color: COLORS.gold },
-  body:         { padding: 20, gap: 16 },
-
-  // Profile
+  backBtn:       { width: 60 },
+  backBtnText:   { color: COLORS.gold, fontSize: 13, fontFamily: FONTS.bodyMed },
+  headerTitle:   { fontFamily: FONTS.displayBold, fontSize: 18, color: COLORS.gold },
+  body:          { padding: 20, gap: 16 },
   profileCard: {
     alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.03)',
@@ -200,14 +201,11 @@ const s = StyleSheet.create({
     width: 64, height: 64, borderRadius: 32,
     backgroundColor: 'rgba(201,168,76,0.2)',
     borderWidth: 1, borderColor: 'rgba(201,168,76,0.4)',
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 12,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
   },
-  avatarText:  { fontSize: 22, fontWeight: '700', color: COLORS.gold, fontFamily: FONTS.bodySemi },
-  username:    { fontSize: 18, color: COLORS.text, fontFamily: FONTS.displayBold },
-  userIdLabel: { fontSize: 11, color: COLORS.textMuted, marginTop: 4, fontFamily: FONTS.body },
-
-  // Balance card
+  avatarText:    { fontSize: 22, fontWeight: '700', color: COLORS.gold, fontFamily: FONTS.bodySemi },
+  username:      { fontSize: 18, color: COLORS.text, fontFamily: FONTS.displayBold },
+  userIdLabel:   { fontSize: 11, color: COLORS.textMuted, marginTop: 4, fontFamily: FONTS.body },
   balanceCard: {
     backgroundColor: 'rgba(201,168,76,0.06)',
     borderWidth: 0.5, borderColor: 'rgba(201,168,76,0.25)',
@@ -217,12 +215,10 @@ const s = StyleSheet.create({
   balanceAmount: { fontFamily: FONTS.display, fontSize: 34, color: COLORS.gold },
   lastAddedBadge:{ paddingHorizontal: 14, paddingVertical: 5, borderRadius: 20, borderWidth: 0.5, marginTop: 4 },
   badgeGreen:    { backgroundColor: 'rgba(46,204,113,0.1)', borderColor: 'rgba(46,204,113,0.35)' },
-  badgeRed:      { backgroundColor: 'rgba(192,57,43,0.1)',  borderColor: 'rgba(192,57,43,0.35)' },
+  badgeRed:      { backgroundColor: 'rgba(192,57,43,0.1)', borderColor: 'rgba(192,57,43,0.35)' },
   lastAddedText: { fontSize: 12, fontFamily: FONTS.bodyMed },
   textGreen:     { color: '#2ECC71' },
   textRed:       { color: COLORS.red },
-
-  // Input
   inputSection:  { gap: 6 },
   inputLabel:    { fontSize: 10, color: COLORS.textMuted, letterSpacing: 1.5, fontFamily: FONTS.bodyMed },
   input: {
@@ -232,29 +228,25 @@ const s = StyleSheet.create({
     borderRadius: 10, color: COLORS.text,
     fontSize: 18, fontFamily: FONTS.body, textAlign: 'center',
   },
-
-  // Actions
-  actionRow:    { flexDirection: 'row', gap: 10 },
+  actionRow:     { flexDirection: 'row', gap: 10 },
   addBtn: {
     flex: 2, padding: 14, borderRadius: 10, alignItems: 'center',
     backgroundColor: 'rgba(46,204,113,0.15)',
     borderWidth: 0.5, borderColor: 'rgba(46,204,113,0.4)',
   },
-  addBtnText:   { fontSize: 14, fontWeight: '600', color: '#2ECC71', fontFamily: FONTS.bodySemi },
+  addBtnText:    { fontSize: 14, fontWeight: '600', color: '#2ECC71', fontFamily: FONTS.bodySemi },
   removeBtn: {
     flex: 1, padding: 14, borderRadius: 10, alignItems: 'center',
     backgroundColor: 'rgba(192,57,43,0.12)',
     borderWidth: 0.5, borderColor: 'rgba(192,57,43,0.35)',
   },
-  removeBtnText:{ fontSize: 14, fontWeight: '600', color: COLORS.red, fontFamily: FONTS.bodySemi },
-
-  // Quick amounts
-  quickLabel:   { fontSize: 10, color: COLORS.textMuted, letterSpacing: 1.5, fontFamily: FONTS.bodyMed },
-  quickRow:     { flexDirection: 'row', gap: 8 },
+  removeBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.red, fontFamily: FONTS.bodySemi },
+  quickLabel:    { fontSize: 10, color: COLORS.textMuted, letterSpacing: 1.5, fontFamily: FONTS.bodyMed },
+  quickRow:      { flexDirection: 'row', gap: 8 },
   quickChip: {
     flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',
     borderWidth: 0.5, borderColor: 'rgba(201,168,76,0.2)',
   },
-  quickChipText:{ fontSize: 12, color: COLORS.gold, fontFamily: FONTS.bodyMed },
+  quickChipText: { fontSize: 12, color: COLORS.gold, fontFamily: FONTS.bodyMed },
 });
