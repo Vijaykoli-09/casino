@@ -46,8 +46,12 @@ public class SecurityConfig {
 .requestMatchers("/api/auth/login").permitAll()
 .requestMatchers("/api/auth/verify-passcode").authenticated()
                 // WebSocket endpoint
-                .requestMatchers("/ws/**").permitAll()
 
+
+// WebSocket endpoints — both SockJS and raw
+.requestMatchers("/ws/**").permitAll()
+.requestMatchers("/ws-native").permitAll()
+.requestMatchers("/ws-native/**").permitAll()
                 // Player routes
                 .requestMatchers("/api/game/**")
                     .hasAnyRole("PLAYER", "ADMIN", "SUPER_ADMIN")

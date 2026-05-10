@@ -23,12 +23,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.setUserDestinationPrefix("/user");
     }
 
-    @Override
-    public void registerStompEndpoints(StompEndpointRegistry registry) {
-        registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*")
-                .withSockJS();
-    }
+  @Override
+public void registerStompEndpoints(StompEndpointRegistry registry) {
+    registry.addEndpoint("/ws")
+            .setAllowedOriginPatterns("*")
+            .withSockJS();
+
+    registry.addEndpoint("/ws-native")
+            .setAllowedOrigins("*");  // use setAllowedOrigins not setAllowedOriginPatterns
+}
 
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
