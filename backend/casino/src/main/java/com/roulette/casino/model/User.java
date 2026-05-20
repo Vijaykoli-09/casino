@@ -35,6 +35,16 @@ public class User {
     @Builder.Default
     private Role role = Role.PLAYER;
 
+    /**
+     * Kept LAZY — changing to EAGER would cause a JOIN on every single user
+     * query in the system, including high-frequency ones like JWT auth checks
+     * (UserDetailsServiceImpl.loadUserByUsername).
+     *
+     * Instead, all service methods that access createdBy are annotated with
+     * @Transactional(readOnly = true) to keep the session open, and the
+     * repository uses @EntityGraph to LEFT JOIN FETCH createdBy in a single
+     * query — no N+1, no lazy-load-outside-session errors.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;

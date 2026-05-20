@@ -157,6 +157,7 @@ export default function GameScreen({ navigation }: Props) {
   // ── Refs ───────────────────────────────────────────────────────────────────
   const prevStatus       = useRef<RoundStatus>('BETTING_OPEN');
   const betsRef          = useRef<PlacedBet[]>([]);
+  const roundIdRef       = useRef<number>(0);   // always current — avoids stale closure
   const autoSubmitDone   = useRef(false);
 
   // ── Animations ─────────────────────────────────────────────────────────────
@@ -179,7 +180,10 @@ export default function GameScreen({ navigation }: Props) {
 
   // ── WebSocket connect ──────────────────────────────────────────────────────
   useEffect(() => {
+    let isMounted = true;
+
     const onRound = (data: RoundPayload) => {
+      if (!isMounted) return;
       setRoundId(data.id);
       setStatus(data.status as RoundStatus);
       setSecondsLeft(data.secondsLeft);
@@ -190,18 +194,44 @@ export default function GameScreen({ navigation }: Props) {
       if (data.balance !== null && data.balance !== undefined) {
         setBalance(data.balance);
       }
-      setConnected(true);
     };
 
     const onBalance = (data: BalancePayload) => {
+      if (!isMounted) return;
       setBalance(data.balance);
     };
 
-connectWebSocket(onRound, onBalance, () => {
-  setConnected(true);
-});
+    const initWebSocket = async () => {
+      console.log('[Game] Initializing WebSocket connection...');
+      try {
+        const connected = await connectWebSocket(onRound, onBalance, () => {
+          if (isMounted) {
+            console.log('[Game] ✅ WebSocket ready');
+            setConnected(true);
+          }
+        });
 
-    return () => { disconnectWebSocket(); };
+        if (!connected && isMounted) {
+          console.error('[Game] ❌ Failed to establish WebSocket connection');
+          Alert.alert(
+            'Connection Error',
+            'Could not connect to game server. Please check your connection and try logging in again.'
+          );
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          console.error('[Game] Exception during WebSocket init:', err);
+          Alert.alert('Connection Error', err.message || 'WebSocket connection failed');
+        }
+      }
+    };
+
+    initWebSocket();
+
+    return () => {
+      isMounted = false;
+      disconnectWebSocket();
+    };
   }, []);
 
   const loadBalance = async () => {

@@ -4,7 +4,7 @@ const BASE_URL = 'http://192.168.31.42:8080/api';
 
 // ── Header builder ────────────────────────────────────────────────────────────
 const getHeaders = async (): Promise<Record<string, string>> => {
-    const token = await Storage.getToken();
+  const token = await Storage.getToken();
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -26,7 +26,7 @@ const handle = async <T>(res: Response): Promise<T> => {
 
 export const login = async (
   username: string,
-  password: string
+  password: string,
 ): Promise<{
   token:            string;
   userId:           number;
@@ -39,6 +39,7 @@ export const login = async (
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ username, password }),
   });
+
   const data = await handle<{
     token:            string;
     userId:           number;
@@ -47,7 +48,9 @@ export const login = async (
     requiresPasscode: boolean;
   }>(res);
 
-  // Save auth only if NOT super admin temp token
+  // Only persist the token for regular logins (ADMIN / PLAYER).
+  // Super-admin gets a temp token here — we do NOT save it; the full token
+  // is saved inside verifyPasscode() after the passcode is confirmed.
   if (!data.requiresPasscode) {
     await Storage.saveAuth(data.token, data.userId, data.role === 'SUPER_ADMIN');
   }
@@ -57,7 +60,7 @@ export const login = async (
 
 export const verifyPasscode = async (
   passcode:  string,
-  tempToken: string
+  tempToken: string,
 ): Promise<{
   token:            string;
   userId:           number;
@@ -73,6 +76,7 @@ export const verifyPasscode = async (
     },
     body: JSON.stringify({ passcode }),
   });
+
   const data = await handle<{
     token:            string;
     userId:           number;
@@ -81,8 +85,11 @@ export const verifyPasscode = async (
     requiresPasscode: boolean;
   }>(res);
 
-  // Save full super admin token
+  // Save the full super-admin token here — this is the single source of truth.
+  // Storage.saveAuth sets the in-memory cache synchronously, so any API call
+  // made immediately after navigation.replace() will use the correct token.
   await Storage.saveAuth(data.token, data.userId, true);
+
   return data;
 };
 
@@ -109,10 +116,10 @@ export const getCurrentRound = async (): Promise<{
 };
 
 export const placeBet = async (body: {
-  roundId:  number;
-  betType:  string;
+  roundId:   number;
+  betType:   string;
   betValue?: string;
-  amount:   number;
+  amount:    number;
 }): Promise<{
   success:    boolean;
   bet:        BetItem;
@@ -132,7 +139,7 @@ export const placeBetsBatch = async (
     betType:   string;
     betValue?: string;
     amount:    number;
-  }>
+  }>,
 ): Promise<{
   success:       boolean;
   totalDeducted: number;
@@ -175,7 +182,7 @@ export const getMyPlayers = async (): Promise<UserItem[]> => {
 export const searchMyPlayers = async (q: string): Promise<UserItem[]> => {
   const res = await fetch(
     `${BASE_URL}/admin/players/search?q=${encodeURIComponent(q)}`,
-    { headers: await getHeaders() }
+    { headers: await getHeaders() },
   );
   return handle(res);
 };
@@ -202,7 +209,7 @@ export const createPlayer = async (body: {
 
 export const updateBalance = async (
   playerId: number,
-  amount:   number
+  amount:   number,
 ): Promise<{ id: number; username: string; balance: number }> => {
   const res = await fetch(`${BASE_URL}/admin/players/${playerId}/balance`, {
     method:  'PUT',
@@ -226,7 +233,7 @@ export const getAllAdmins = async (): Promise<UserItem[]> => {
 export const searchAdmins = async (q: string): Promise<UserItem[]> => {
   const res = await fetch(
     `${BASE_URL}/super-admin/admins/search?q=${encodeURIComponent(q)}`,
-    { headers: await getHeaders() }
+    { headers: await getHeaders() },
   );
   return handle(res);
 };
@@ -244,7 +251,7 @@ export const createAdmin = async (body: {
 };
 
 export const getAdminDetail = async (
-  adminId: number
+  adminId: number,
 ): Promise<AdminDetailItem> => {
   const res = await fetch(`${BASE_URL}/super-admin/admins/${adminId}`, {
     headers: await getHeaders(),
@@ -253,13 +260,13 @@ export const getAdminDetail = async (
 };
 
 export const getAdminProfit = async (
-  adminId:  number,
-  from:     string,
-  to:       string
+  adminId: number,
+  from:    string,
+  to:      string,
 ): Promise<AdminProfitItem> => {
   const res = await fetch(
     `${BASE_URL}/super-admin/admins/${adminId}/profit?from=${from}&to=${to}`,
-    { headers: await getHeaders() }
+    { headers: await getHeaders() },
   );
   return handle(res);
 };
@@ -280,24 +287,24 @@ export const deleteAdmin = async (adminId: number): Promise<void> => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface BetItem {
-  id:         number;
-  roundId:    number;
-  betType:    string;
-  betValue:   string | null;
-  amount:     number;
-  winAmount:  number;
-  isSettled:  boolean;
-  createdAt:  string;
+  id:        number;
+  roundId:   number;
+  betType:   string;
+  betValue:  string | null;
+  amount:    number;
+  winAmount: number;
+  isSettled: boolean;
+  createdAt: string;
 }
 
 export interface UserItem {
-  id:                 number;
-  username:           string;
-  balance:            number;
-  role:               string;
-  createdById:        number | null;
-  createdByUsername:  string | null;
-  createdAt:          string;
+  id:                number;
+  username:          string;
+  balance:           number;
+  role:              string;
+  createdById:       number | null;
+  createdByUsername: string | null;
+  createdAt:         string;
 }
 
 export interface AdminDetailItem {

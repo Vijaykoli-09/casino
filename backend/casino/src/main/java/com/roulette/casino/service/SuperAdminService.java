@@ -9,6 +9,7 @@ import com.roulette.casino.model.User;
 import com.roulette.casino.repository.BetRepository;
 import com.roulette.casino.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class SuperAdminService {
@@ -28,7 +30,7 @@ public class SuperAdminService {
     private final PasswordEncoder passwordEncoder;
     private final AdminService    adminService;
 
-    // ── Create admin (username + password only, no balance) ───────────────────
+    // ── Create admin ──────────────────────────────────────────────────────────
 
     @Transactional
     public UserResponse createAdmin(
@@ -56,15 +58,25 @@ public class SuperAdminService {
 
     // ── Get all admins ────────────────────────────────────────────────────────
 
+    /**
+     * @Transactional(readOnly = true) keeps the session open so Hibernate can
+     * initialise the createdBy proxy if needed. The @EntityGraph on
+     * findByRole() fetches createdBy in the same SQL query (no N+1), so
+     * mapToUserResponse() never hits a closed-session proxy.
+     */
+    @Transactional(readOnly = true)
     public List<UserResponse> getAllAdmins() {
-        return userRepository.findByRole(Role.ADMIN)
-                .stream()
+        log.debug("getAllAdmins() called");
+        List<User> admins = userRepository.findByRole(Role.ADMIN);
+        log.info("✅ Found {} admins in database", admins.size());
+        return admins.stream()
                 .map(adminService::mapToUserResponse)
                 .collect(Collectors.toList());
     }
 
     // ── Search admins ─────────────────────────────────────────────────────────
 
+    @Transactional(readOnly = true)
     public List<UserResponse> searchAdmins(String search) {
         return userRepository.searchAdmins(search)
                 .stream()
@@ -74,15 +86,18 @@ public class SuperAdminService {
 
     // ── Get admin detail with players + profit ────────────────────────────────
 
+    @Transactional(readOnly = true)
     public AdminDetailResponse getAdminDetail(Long adminId) {
 
-        User admin = userRepository.findById(adminId)
+        // findByIdWithCreatedBy uses @EntityGraph — createdBy pre-fetched
+        User admin = userRepository.findByIdWithCreatedBy(adminId)
                 .orElseThrow(() -> new RuntimeException("Admin not found"));
 
         if (admin.getRole() != Role.ADMIN) {
             throw new RuntimeException("User is not an admin");
         }
 
+        // findByCreatedById uses @EntityGraph — each player's createdBy pre-fetched
         List<UserResponse> players = userRepository
                 .findByCreatedById(adminId)
                 .stream()
@@ -105,8 +120,9 @@ public class SuperAdminService {
 
     // ── Get all players under an admin ────────────────────────────────────────
 
+    @Transactional(readOnly = true)
     public List<UserResponse> getAdminPlayers(Long adminId) {
-        User admin = userRepository.findById(adminId)
+        User admin = userRepository.findByIdWithCreatedBy(adminId)
                 .orElseThrow(() -> new RuntimeException("Admin not found"));
 
         if (admin.getRole() != Role.ADMIN) {
@@ -134,56 +150,50 @@ public class SuperAdminService {
         userRepository.delete(admin);
     }
 
+    // ── Profit report ─────────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
     public AdminProfitResponse getAdminProfit(
-        Long adminId,
-        String fromDate,
-        String toDate) {
+            Long adminId,
+            String fromDate,
+            String toDate) {
 
-    User admin = userRepository.findById(adminId)
-            .orElseThrow(() -> new RuntimeException("Admin not found"));
+        User admin = userRepository.findByIdWithCreatedBy(adminId)
+                .orElseThrow(() -> new RuntimeException("Admin not found"));
 
-    if (admin.getRole() != Role.ADMIN) {
-        throw new RuntimeException("User is not an admin");
+        if (admin.getRole() != Role.ADMIN) {
+            throw new RuntimeException("User is not an admin");
+        }
+
+        LocalDateTime from = LocalDate.parse(fromDate).atStartOfDay();
+        LocalDateTime to   = LocalDate.parse(toDate).atTime(23, 59, 59);
+
+        BigDecimal totalBets    = betRepository.calculateTotalBetsByDateRange(adminId, from, to);
+        BigDecimal totalPayouts = betRepository.calculateTotalPayoutsByDateRange(adminId, from, to);
+        BigDecimal adminProfit  = betRepository.calculateAdminProfitByDateRange(adminId, from, to);
+
+        BigDecimal superAdminShare = adminProfit
+                .multiply(BigDecimal.valueOf(0.30))
+                .setScale(2, java.math.RoundingMode.HALF_UP);
+
+        List<UserResponse> players = userRepository
+                .findByCreatedById(adminId)
+                .stream()
+                .filter(u -> u.getRole() == Role.PLAYER)
+                .map(adminService::mapToUserResponse)
+                .collect(Collectors.toList());
+
+        return AdminProfitResponse.builder()
+                .adminId(admin.getId())
+                .adminUsername(admin.getUsername())
+                .totalPlayers(players.size())
+                .totalBets(totalBets)
+                .totalPayouts(totalPayouts)
+                .adminProfit(adminProfit)
+                .superAdminShare(superAdminShare)
+                .fromDate(fromDate)
+                .toDate(toDate)
+                .players(players)
+                .build();
     }
-
-    // Parse dates
-    LocalDateTime from = LocalDate.parse(fromDate)
-            .atStartOfDay();
-    LocalDateTime to   = LocalDate.parse(toDate)
-            .atTime(23, 59, 59);
-
-    // Get stats
-    BigDecimal totalBets    = betRepository
-            .calculateTotalBetsByDateRange(adminId, from, to);
-    BigDecimal totalPayouts = betRepository
-            .calculateTotalPayoutsByDateRange(adminId, from, to);
-    BigDecimal adminProfit  = betRepository
-            .calculateAdminProfitByDateRange(adminId, from, to);
-
-    // 30% super admin share
-    BigDecimal superAdminShare = adminProfit
-            .multiply(BigDecimal.valueOf(0.30))
-            .setScale(2, java.math.RoundingMode.HALF_UP);
-
-    // Players list
-    List<UserResponse> players = userRepository
-            .findByCreatedById(adminId)
-            .stream()
-            .filter(u -> u.getRole() == Role.PLAYER)
-            .map(adminService::mapToUserResponse)
-            .collect(Collectors.toList());
-
-    return AdminProfitResponse.builder()
-            .adminId(admin.getId())
-            .adminUsername(admin.getUsername())
-            .totalPlayers(players.size())
-            .totalBets(totalBets)
-            .totalPayouts(totalPayouts)
-            .adminProfit(adminProfit)
-            .superAdminShare(superAdminShare)
-            .fromDate(fromDate)
-            .toDate(toDate)
-            .players(players)
-            .build();
-}
 }

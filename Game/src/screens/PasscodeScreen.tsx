@@ -7,7 +7,6 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { COLORS, FONTS } from '../constants/theme';
 import { verifyPasscode } from '../services/api';
-import { Storage } from '../services/storage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Passcode'>;
 
@@ -21,10 +20,10 @@ export default function PasscodeScreen({ route, navigation }: Props) {
 
   const shake = () => {
     Animated.sequence([
-      Animated.timing(shakeAnim, { toValue: 10,  duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue:  10, duration: 60, useNativeDriver: true }),
       Animated.timing(shakeAnim, { toValue: -10, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 10,  duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 0,   duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue:  10, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue:   0, duration: 60, useNativeDriver: true }),
     ]).start();
   };
 
@@ -37,10 +36,25 @@ export default function PasscodeScreen({ route, navigation }: Props) {
     if (newCode.length === 4) {
       setLoading(true);
       try {
-        const res = await verifyPasscode(newCode, tempToken);
-        // Save new full token
-        await Storage.saveAuth(res.token, -1, true);
+        /**
+         * verifyPasscode() in api.ts handles everything:
+         *   1. POST to /auth/verify-passcode with the temp token
+         *   2. Calls Storage.saveAuth(fullToken, ...) — sets in-memory cache
+         *      synchronously, then persists to AsyncStorage
+         *
+         * We do NOT call Storage.saveAuth() again here.
+         * Doing so caused a race condition where the second saveAuth
+         * (with userId = -1) could overwrite the first before the
+         * AsyncStorage write completed, and was simply redundant.
+         */
+        await verifyPasscode(newCode, tempToken);
+
+        // Token is already saved — navigate immediately.
+        // SuperAdminScreen's first getHeaders() call will find the token
+        // in the in-memory cache, not from AsyncStorage, so there is no
+        // read-before-write race.
         navigation.replace('SuperAdmin');
+
       } catch {
         setError(true);
         shake();
@@ -57,10 +71,10 @@ export default function PasscodeScreen({ route, navigation }: Props) {
   };
 
   const KEYS = [
-    ['1','2','3'],
-    ['4','5','6'],
-    ['7','8','9'],
-    ['','0','⌫'],
+    ['1', '2', '3'],
+    ['4', '5', '6'],
+    ['7', '8', '9'],
+    ['',  '0', '⌫'],
   ];
 
   return (
@@ -78,7 +92,7 @@ export default function PasscodeScreen({ route, navigation }: Props) {
       <Animated.View
         style={[s.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
       >
-        {[0,1,2,3].map(i => (
+        {[0, 1, 2, 3].map(i => (
           <View
             key={i}
             style={[
@@ -98,7 +112,7 @@ export default function PasscodeScreen({ route, navigation }: Props) {
       <View style={s.keypad}>
         {KEYS.map((row, ri) => (
           <View key={ri} style={s.keyRow}>
-            {row.map((key, ki) => (
+            {row.map((key, ki) =>
               key === '' ? (
                 <View key={ki} style={s.keyEmpty} />
               ) : (
@@ -113,8 +127,8 @@ export default function PasscodeScreen({ route, navigation }: Props) {
                 >
                   <Text style={s.keyText}>{key}</Text>
                 </TouchableOpacity>
-              )
-            ))}
+              ),
+            )}
           </View>
         ))}
       </View>
@@ -135,8 +149,8 @@ const s = StyleSheet.create({
     flex: 1, backgroundColor: COLORS.black,
     alignItems: 'center', justifyContent: 'center', gap: 32,
   },
-  header:   { alignItems: 'center', gap: 8 },
-  icon:     { fontSize: 40, color: COLORS.gold },
+  header:    { alignItems: 'center', gap: 8 },
+  icon:      { fontSize: 40, color: COLORS.gold },
   title: {
     fontFamily: FONTS.display, fontSize: 26,
     color: COLORS.gold, letterSpacing: 3,
@@ -145,7 +159,7 @@ const s = StyleSheet.create({
     fontSize: 12, color: COLORS.textMuted,
     letterSpacing: 1, fontFamily: FONTS.body,
   },
-  dotsRow:  { flexDirection: 'row', gap: 20 },
+  dotsRow:   { flexDirection: 'row', gap: 20 },
   dot: {
     width: 18, height: 18, borderRadius: 9,
     borderWidth: 2, borderColor: 'rgba(201,168,76,0.4)',
@@ -153,30 +167,30 @@ const s = StyleSheet.create({
   },
   dotFilled: {
     backgroundColor: COLORS.gold,
-    borderColor: COLORS.gold,
+    borderColor:     COLORS.gold,
   },
   dotError: {
-    borderColor: COLORS.red,
+    borderColor:     COLORS.red,
     backgroundColor: COLORS.red,
   },
   errorText: {
     fontSize: 12, color: COLORS.red,
     fontFamily: FONTS.body, letterSpacing: 0.5,
   },
-  keypad:   { gap: 16 },
-  keyRow:   { flexDirection: 'row', gap: 24 },
+  keypad:    { gap: 16 },
+  keyRow:    { flexDirection: 'row', gap: 24 },
   key: {
     width: 72, height: 72, borderRadius: 36,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 0.5, borderColor: 'rgba(201,168,76,0.2)',
     alignItems: 'center', justifyContent: 'center',
   },
-  keyEmpty: { width: 72, height: 72 },
+  keyEmpty:  { width: 72, height: 72 },
   keyText: {
     fontSize: 22, color: COLORS.text,
     fontFamily: FONTS.bodySemi,
   },
-  backBtn:  { marginTop: 8 },
+  backBtn:   { marginTop: 8 },
   backBtnText: {
     fontSize: 12, color: COLORS.textMuted,
     fontFamily: FONTS.body,
